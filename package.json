@@ -1,0 +1,53 @@
+{
+  "name": "chem_log",
+  "version": "0.1.0",
+  "main": "./build/electron/main.js",
+  "scripts": {
+    "dump": "dump-stlite-desktop-artifacts",
+    "serve": "cross-env NODE_ENV=production electron .",
+    "app:dir": "electron-builder --dir",
+    "app:dist": "electron-builder",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "author": "Melissa A. Hines",
+  "license": "MIT",
+  "build": {
+    "files": [
+      "build/**/*"
+    ],
+    "directories": {
+      "buildResources": "assets"
+    },
+    "appId": "com.hinesLab.chem-log",
+    "productName": "Chem Log",
+    "mac": {
+      "icon": "./assets/icons/mac/icon.icon",
+      "extendInfo": {"CFBundleName": "Chem Log"},
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
+     },
+     "afterSign": "./assets/notarize.js"
+  },
+  "devDependencies": {
+    "@stlite/desktop": "workspace:^",
+    "cross-env": "^10.1.0",
+    "electron": "34.3.0",
+    "electron-builder": "^26.3.0",
+    "electron-builder-notarize-pkg": "^1.2.0"
+  },
+  "stlite": {
+    "desktop": {
+      "files": [
+        "chemLogApp.py",
+        "./.streamlit/secrets.toml",
+        "./assets/icon.png"
+      ],
+      "requirementsTxtFiles": [
+        "requirements.txt"
+      ],
+      "entrypoint": "chemLogApp.py"
+    }
+  }
+}

@@ -1,5 +1,0 @@
-{
-  "entrypoint": "chemLogApp.py",
-  "embed": false,
-  "nodeJsWorker": false
-}

@@ -22,11 +22,10 @@
     "productName": "Chem Log",
     "mac": {
       "icon": "./assets/icons/mac/icon.icon",
-      "extendInfo": {"CFBundleName": "Chem Log"},
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
-      "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist"
+      "entitlements": "buildResources/entitlements.mac.plist",
+      "entitlementsInherit": "buildResources/entitlements.mac.plist"
      },
      "afterSign": "./assets/notarize.js"
   },

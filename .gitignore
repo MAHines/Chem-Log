@@ -9,11 +9,7 @@ pids
 
 
 # Compiled binary addons (https://nodejs.org/api/addons.html)
-build/app_files
-build/assets
-build/electron
-build/pyodide
-build/site-packages-snapshot.tar.gz
+build
 
 dist/*
 

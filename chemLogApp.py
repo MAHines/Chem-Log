@@ -3,6 +3,8 @@ import pandas as pd
 import os
 import platform
 import gspread
+import time
+import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from oauth2client.service_account import ServiceAccountCredentials
@@ -40,7 +42,7 @@ def nameOfTA_dialog():
 
         # Perform very simple validation. This should be better.
         if submitted:
-            if not course_num in ALLOWED_COURSES:
+            if course_num not in ALLOWED_COURSES:
                 error_message_placeholder.error('Enter a valid course number')
             elif not TA_name:
                 error_message_placeholder.error('TA name is required')
@@ -81,17 +83,44 @@ def curDateTimeString():
     
     return(ny_time.strftime("%a, %d %b %y, %I:%M %p")) # Ex Sat_Dec_20_2025
 
+def check_string_is_netID(s):
+    """
+    Checks if a string starts with 2 or 3 alphanumeric characters 
+    (a-z, A-Z) followed by an integer.
+    """
+    # The regex pattern is:
+    # ^      - start of the string
+    # [a-zA-Z]{2,3} - exactly 2 or 3 alphanumeric characters
+    # \d+    - one or more digits (integer part)
+    pattern = r'^[a-zA-Z]{2,3}\d+'
+    
+    if re.match(pattern, s):
+        return True
+    else:
+        return False
+
 def submit_ID():
     """ Processes the card swipe """
     input = st.session_state.card_input
     st.session_state.card_input = ''
     
     # The ID number is a subset of the data on the card.
-    cornellID_number = input[8:15]
-    
+    if len(input) < 8 and check_string_is_netID(input):  # Did they enter a netID
+        cornellID_number = input
+    elif len(input) > 16:
+        cornellID_number = input[8:15]
+    else:   
+        st.session_state.card_input = 'Cannot interpret input as ID or netID. Try again.'
+        return
+
     # Get current time
     formatted_datetime = curDateTimeString()
     
+    sh = open_google_sheet()
+
+    # Open the appropriate sheet
+    st.session_state['worksheet'] = sh.worksheet(ALLOWED_COURSES[st.session_state['course_num']])
+
     # Archive the swipe in the dataframe and the spreadsheet
     df_entry = [cornellID_number, formatted_datetime]
     spreadsheet_entry = st.session_state['first_cols'] + [cornellID_number, formatted_datetime]
@@ -117,14 +146,18 @@ def sign_out():
     st.session_state['class_initiated'] = False
     st.session_state.entries_df = None
 
+def open_google_sheet():
+    
+    # Tried to catch gspread exceptions due to bad wifi, but could not do it gracefully
+    # Bad wifi just makes the whole interface hang
+    google_service_account_info = st.secrets['google_service_account']
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(google_service_account_info, scope)
+    client = gspread.authorize(creds)
+    return client.open('Card Swipe Shared Sheet')
+ 
 # Define the scope of the Google Sheet
 scope = ["https://spreadsheets.google.com/feeds", 'https://www.googleapis.com/auth/spreadsheets',
          "https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/drive"]
-
-# Process credentials to the account
-google_service_account_info = st.secrets['google_service_account']
-creds = ServiceAccountCredentials.from_json_keyfile_dict(google_service_account_info, scope)
-client = gspread.authorize(creds)
 
 # This tries to remove the large amount of white space at the top of the page
 st.markdown("""
@@ -141,12 +174,6 @@ st.markdown("""
 # Initialization
 if 'class_initiated' not in st.session_state:
     st.session_state['class_initiated'] = False
-else:    
-    # Open the appropriate worksheet
-    sh = client.open('Card Swipe Shared Sheet')
-    
-    # … and the appropriate sheet
-    st.session_state['worksheet'] = sh.worksheet(ALLOWED_COURSES[st.session_state['course_num']])
     
 # Display the logo and the welcome message
 with st.container(horizontal_alignment="center"): #

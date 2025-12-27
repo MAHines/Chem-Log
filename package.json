@@ -26,8 +26,14 @@
       "gatekeeperAssess": false,
       "entitlements": "buildResources/entitlements.mac.plist",
       "entitlementsInherit": "buildResources/entitlements.mac.plist"
-     },
-     "afterSign": "./assets/notarize.js",
+    },
+    "afterSign": "./assets/notarize.js",
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "assets/icons/pc/icon.ico"
+    }
   },
   "devDependencies": {
     "@stlite/desktop": "workspace:^",

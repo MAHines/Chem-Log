@@ -27,7 +27,7 @@
       "entitlements": "buildResources/entitlements.mac.plist",
       "entitlementsInherit": "buildResources/entitlements.mac.plist"
      },
-     "afterSign": "./assets/notarize.js"
+     "afterSign": "./assets/notarize.js",
   },
   "devDependencies": {
     "@stlite/desktop": "workspace:^",

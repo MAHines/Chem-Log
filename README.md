@@ -2,7 +2,7 @@
 
 The app can be run on a Mac or Windows 11 computer with a USB card reader. Students swipe their ID cards on entry. Their ID, a datetime stamp, and some additional data are stored on a Google sheet for later processing.
 
-This is a severless streamlit app based on stlite/desktop (https://stlite.net). The package runs entirely in a browser and does not require installation of Python, Pandas, etc. Instead the package runs in Pyodide.
+This is a severless streamlit app based on stlite/desktop (https://stlite.net). The package runs entirely in a Chromium window and does not require installation of Python, Pandas, etc. Instead the package runs in Pyodide.
 
 The app stores its data in multiple sheets within a Google worksheet. The API is described [by Google](https://developers.google.com/workspace/sheets/api/quickstart/python) and by [streamlit](https://docs.streamlit.io/develop/tutorials/databases/private-gsheet). Access is controlled by a secrets file that is not archived (for obvious reasons) but is located at ./.streamlit/secrets.toml.
 

@@ -1,4 +1,4 @@
-# Chem Log App – A cross-platform app to log lab attendance 
+# Chem Log – A cross-platform app to log lab attendance 
 
 The app can be run on a Mac or Windows 11 computer with a USB card reader. Students swipe their ID cards on entry. Their ID, a datetime stamp, and some additional data are stored on a Google sheet for later processing.
 

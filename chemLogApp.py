@@ -5,7 +5,7 @@ import platform
 import gspread
 import time
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from oauth2client.service_account import ServiceAccountCredentials
 import streamlit.components.v1 as components
@@ -22,9 +22,10 @@ import streamlit.components.v1 as components
 # See README.md for more information.
 
 # Dict to associate course number with sheet name
-ALLOWED_COURSES = {'2070': 'Chem_2070', '2080': 'Chem_2080', '2510': 'Chem_2510'}
+ALLOWED_COURSES = {'2070': 'Chem_2070', '2510': 'Chem_2510'}
+SHEET_NAME = 'Lab Attendance, Spring 2026'
 
-@st.dialog('Enter TA name and Course Number before proceeding', dismissible=False)
+@st.dialog('TA must sign in before you swipe', dismissible=False)
 def nameOfTA_dialog():
     """ Use a modal dialog to ask the user for a name for the analysis. This will appear at
     the top of the main page if no one has logged in."""
@@ -41,11 +42,14 @@ def nameOfTA_dialog():
         submitted = st.form_submit_button("Submit")
 
         # Perform very simple validation. This should be better.
+        TA_name_word_count = len(TA_name.split())
         if submitted:
             if course_num not in ALLOWED_COURSES:
                 error_message_placeholder.error('Enter a valid course number')
             elif not TA_name:
                 error_message_placeholder.error('TA name is required')
+            elif TA_name_word_count > 1:
+                 error_message_placeholder.error('TA name should be one word (e.g., CynthiaK)')
             else:
                 st.session_state['course_num'] = course_num
                 st.session_state['TA_name'] = TA_name
@@ -53,12 +57,13 @@ def nameOfTA_dialog():
                 # Use the current datetime to determine the section (e.g., Mon Afternoon)
                 utc_now = datetime.now(ZoneInfo("UTC"))
                 ny_time = utc_now.astimezone(ZoneInfo("America/New_York"))
+                st.session_state['Start_datetime'] = ny_time
                 
                 formatted_datetime = ny_time.strftime('%a ') # Ex Mon
                 if int(ny_time.strftime('%H')) < 12:
-                    formatted_datetime += 'Morning'
+                    formatted_datetime += 'AM'
                 else:
-                    formatted_datetime += 'Afternoon'
+                    formatted_datetime += 'PM'
                 section = formatted_datetime
                 st.session_state['section'] = section
             
@@ -104,6 +109,14 @@ def submit_ID():
     input = st.session_state.card_input
     st.session_state.card_input = ''
     
+    # Need to make sure the TA info is "fresh"
+    utc_now = datetime.now(ZoneInfo("UTC"))
+    ny_time = utc_now.astimezone(ZoneInfo("America/New_York"))
+    hrs_since_login = (ny_time - st.session_state['Start_datetime'])/timedelta(hours = 1)
+    if hrs_since_login > 4.0:
+         sign_out()
+         return   
+    
     # The ID number is a subset of the data on the card.
     if len(input) < 8 and check_string_is_netID(input):  # Did they enter a netID
         cornellID_number = input
@@ -130,7 +143,7 @@ def submit_ID():
 
 # Function to inject JavaScript for focusing the input
 def focus_text_input():
-    # This script searches for text inputs and focuses on the last one
+    """ Searches for text inputs and focuses on the last one """ 
     js_script = """
     <script>
         var input = window.parent.document.querySelectorAll("input[type=text]");
@@ -153,7 +166,7 @@ def open_google_sheet():
     google_service_account_info = st.secrets['google_service_account']
     creds = ServiceAccountCredentials.from_json_keyfile_dict(google_service_account_info, scope)
     client = gspread.authorize(creds)
-    return client.open('Card Swipe Shared Sheet')
+    return client.open(SHEET_NAME)
  
 # Define the scope of the Google Sheet
 scope = ["https://spreadsheets.google.com/feeds", 'https://www.googleapis.com/auth/spreadsheets',
@@ -178,7 +191,7 @@ if 'class_initiated' not in st.session_state:
 # Display the logo and the welcome message
 with st.container(horizontal_alignment="center"): #
     st.image("assets/icon.png", width=250)
-    st.title('Welcome to Chem Log')
+    st.html('<div style="text-align: center;font-size: 44px;font-weight: bold">Welcome to Chem Log </div>')
 
 if not st.session_state['class_initiated']:
     nameOfTA_dialog()
@@ -186,14 +199,20 @@ else:
     # Display the TA info if someone is logged in
     st.write('### ' + st.session_state['TA_name'] + '\\\'s Chem ' + st.session_state['course_num'] + ' ' + st.session_state['section'] + ' Section')
 
-
 # Allow the TA to log in repeatedly in case of errors
-if st.button('Update Class Info'):
-    nameOfTA_dialog()
+col1, col2 = st.columns(2)
+with col1:
+    if st.button('Update TA & Class Info'):
+        nameOfTA_dialog()
+with col2:
+    if st.session_state['class_initiated']:
+        st.button('TA Sign Out',
+               key = 'sign_out',
+               on_click = sign_out)
     
 # Display the actual swiping input if class_initiated
 if st.session_state['class_initiated']:
-    st.text_input("Students must swipe their Cornell ID. Make sure the cursor is in the field below before swiping.",
+    st.text_input("Students must swipe in and out with their Cornell ID. Make sure the cursor is in the field below before swiping.",
                     key = 'card_input',
                     on_change = submit_ID)
     
@@ -201,10 +220,6 @@ if st.session_state['class_initiated']:
     #   visual confirmation that the swipe is working
     st.dataframe(st.session_state.entries_df)
     
-    # Enable log out
-    st.button('TA Sign Out',
-               key = 'sign_out',
-               on_click = sign_out)
 
 # Call the function to focus the input at the end of the script. This attempts to keep the cursor in the text box.
 focus_text_input()

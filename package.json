@@ -1,6 +1,6 @@
 {
-  "name": "chem_log",
-  "version": "0.1.0",
+  "name": "Chem_Log",
+  "version": "1.0.0",
   "main": "./build/electron/main.js",
   "scripts": {
     "dump": "dump-stlite-desktop-artifacts",

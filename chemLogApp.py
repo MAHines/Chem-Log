@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from oauth2client.service_account import ServiceAccountCredentials
 import streamlit.components.v1 as components
+from tenacity import retry, stop_after_attempt, wait_fixed
 
 # This is a severless streamlit app based on stlite/desktop (https://stlite.net).
 # The package runs entirely in a browser and does not require installation of Python, Pandas, etc.
@@ -22,7 +23,7 @@ import streamlit.components.v1 as components
 # See README.md for more information.
 
 # Dict to associate course number with sheet name
-ALLOWED_COURSES = {'2070': 'Chem_2070', '2510': 'Chem_2510'}
+ALLOWED_COURSES = {'2070': 'Chem_2070', '2510': 'Chem_2510', 'Test': 'Test'}
 SHEET_NAME = 'Lab Attendance, Spring 2026'
 
 @st.dialog('TA must sign in before you swipe', dismissible=False)
@@ -74,7 +75,7 @@ def nameOfTA_dialog():
                 if not st.session_state['class_initiated']:
                     # Set up the dataframe to hold the students
                     column_names = ['ID', 'Time']
-                    entries_df = pd.DataFrame(columns=column_names)
+                    entries_df = pd.DataFrame(columns=column_names).sort_index(ascending=False)
                     st.session_state.entries_df = entries_df
             
                     st.session_state['class_initiated'] = True   
@@ -107,6 +108,7 @@ def check_string_is_netID(s):
 def submit_ID():
     """ Processes the card swipe """
     input = st.session_state.card_input
+    entries_df = st.session_state['entries_df']
     st.session_state.card_input = ''
     
     # Need to make sure the TA info is "fresh"
@@ -124,22 +126,25 @@ def submit_ID():
         cornellID_number = input[8:15]
     else:   
         st.session_state.card_input = 'Cannot interpret input as ID or netID. Try again.'
-        return
+        return(0)
 
     # Get current time
     formatted_datetime = curDateTimeString()
-    
-    sh = open_google_sheet()
 
-    # Open the appropriate sheet
-    st.session_state['worksheet'] = sh.worksheet(ALLOWED_COURSES[st.session_state['course_num']])
-
-    # Archive the swipe in the dataframe and the spreadsheet
-    df_entry = [cornellID_number, formatted_datetime]
+    # Update the Google sheet
     spreadsheet_entry = st.session_state['first_cols'] + [cornellID_number, formatted_datetime]
+    try:
+        append_row_to_google_sheet(spreadsheet_entry)
+    except Exception as e:
+        st.session_state.card_input = 'Write failed. Check wifi and try again.'
+        st.error(f'Failed after retries (likely wifi issue): {e}')
+        return(-1)
+
+    # Archive the swipe in the dataframe
+    df_entry = [cornellID_number, formatted_datetime]
+    entries_df.loc[len(entries_df)] = df_entry
+    entries_df = entries_df.sort_index(ascending=False, inplace = True)
     
-    st.session_state.entries_df.loc[len( st.session_state.entries_df)] = df_entry
-    st.session_state['worksheet'].append_row(spreadsheet_entry) # Actual spreadsheet entry
 
 # Function to inject JavaScript for focusing the input
 def focus_text_input():
@@ -159,39 +164,36 @@ def sign_out():
     st.session_state['class_initiated'] = False
     st.session_state.entries_df = None
 
-def open_google_sheet():
+@retry(
+    stop=stop_after_attempt(5), # Stop after a maximum of 5 attempts
+    wait=wait_fixed(1) 
+)
+def append_row_to_google_sheet(spreadsheet_entry):
     
-    # Tried to catch gspread exceptions due to bad wifi, but could not do it gracefully
-    # Bad wifi just makes the whole interface hang
+    scope = ["https://spreadsheets.google.com/feeds", 'https://www.googleapis.com/auth/spreadsheets',
+             "https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/drive"]
     google_service_account_info = st.secrets['google_service_account']
     creds = ServiceAccountCredentials.from_json_keyfile_dict(google_service_account_info, scope)
     client = gspread.authorize(creds)
-    return client.open(SHEET_NAME)
+    sh = client.open(SHEET_NAME)
+    sheetName = sh.worksheet(ALLOWED_COURSES[st.session_state['course_num']])    
+    sheetName.append_row(spreadsheet_entry) # Actual spreadsheet entry
  
-# Define the scope of the Google Sheet
-scope = ["https://spreadsheets.google.com/feeds", 'https://www.googleapis.com/auth/spreadsheets',
-         "https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/drive"]
-
-# This tries to remove the large amount of white space at the top of the page
-st.markdown("""
-        <style>
-               .block-container {
-                    padding-top: 1rem;
-                    padding-bottom: 0rem;
-                    padding-left: 5rem;
-                    padding-right: 5rem;
-                }
-        </style>
-        """, unsafe_allow_html=True)
-
 # Initialization
 if 'class_initiated' not in st.session_state:
     st.session_state['class_initiated'] = False
     
 # Display the logo and the welcome message
-with st.container(horizontal_alignment="center"): #
+col1, col2 = st.columns([1, 1], vertical_alignment="center")
+with col1:
     st.image("assets/icon.png", width=250)
+
+with col2:
     st.html('<div style="text-align: center;font-size: 44px;font-weight: bold">Welcome to Chem Log </div>')
+
+# with st.container(horizontal_alignment="center"): #
+#     st.image("assets/icon.png", width=250)
+#     st.html('<div style="text-align: center;font-size: 44px;font-weight: bold">Welcome to Chem Log </div>')
 
 if not st.session_state['class_initiated']:
     nameOfTA_dialog()

@@ -1,6 +1,6 @@
 # Chem Log – A cross-platform app to log lab attendance 
 
-The app can be run on a Mac or Windows 11 computer with a USB card reader. Students swipe their ID cards on entry. Their ID, a datetime stamp, and some additional data are stored on a Google sheet for later processing.
+The app can be run on a Mac or Windows 11 computer with a USB card reader. Students swipe their ID cards on entry. If their ID or netID matches a roster entry, their ID, a datetime stamp, and some additional data are stored on a Google sheet for later processing. 
 
 This is a severless streamlit app based on stlite/desktop (https://stlite.net). The package runs entirely in a Chromium window and does not require installation of Python, Pandas, etc. Instead the package runs in Pyodide.
 

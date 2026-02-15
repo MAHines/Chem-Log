@@ -71,6 +71,13 @@ def nameOfTA_dialog():
                 # Format the information for the first three columns of the sheet
                 st.session_state['first_cols'] = [course_num, TA_name, section]
 
+                # Read the roster
+                error = read_Alfred_roster()
+                if error < 0:
+                    error_message_placeholder.error('Roster not read. Check wifi!')
+                    st.session_state['class_initiated'] = False
+                    return
+                
                 # Initiate a new dataframe if the TA is just logging in
                 if not st.session_state['class_initiated']:
                     # Set up the dataframe to hold the students
@@ -81,6 +88,52 @@ def nameOfTA_dialog():
                     st.session_state['class_initiated'] = True   
                 
                 st.rerun()
+
+def read_Alfred_roster():
+    st.session_state['rosterSheetName'] = 'Chem_' + st.session_state['course_num'] + '_Roster'
+    
+    error, roster_df = read_roster_sheet()
+    if error < 0:
+        return -1
+
+    st.session_state['roster_df'] = roster_df
+    st.session_state['roster_read'] = True
+    return 0
+
+def read_roster_sheet():
+
+    # Now open the sheet for the roster and read
+    try:
+        data = read_google_sheet_with_retry(st.session_state['rosterSheetName'], 'roster')
+    except Exception as e:
+        st.error(f'Failed after retries (likely wifi issue):: {e}')
+        return -1, None
+    
+    headers = data.pop(0)
+    roster_df = pd.DataFrame(data, columns = headers)
+    roster_df.drop_duplicates(inplace = True)
+        
+    return 0, roster_df
+
+@retry(
+    stop=stop_after_attempt(5), # Stop after a maximum of 5 attempts
+    wait=wait_fixed(1) 
+)
+def read_google_sheet_with_retry(sheetName, msg):   # Open Sheet, then read entire sheet with sheetName
+    
+    message = f'Reading {msg} Google sheet'
+    alert = st.warning(message)
+    scope = ["https://spreadsheets.google.com/feeds", 'https://www.googleapis.com/auth/spreadsheets',
+             "https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/drive"]
+    google_service_account_info = st.secrets['google_service_account']
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(google_service_account_info, scope)
+    client = gspread.authorize(creds)
+    sh = client.open(SHEET_NAME)
+    
+    # Open the appropriate sheet and read it
+    data = sh.worksheet(sheetName).get_all_values()
+    alert.empty()
+    return data
 
 def curDateTimeString():
     
@@ -98,12 +151,33 @@ def check_string_is_netID(s):
     # ^      - start of the string
     # [a-zA-Z]{2,3} - exactly 2 or 3 alphanumeric characters
     # \d+    - one or more digits (integer part)
-    pattern = r'^[a-zA-Z]{2,3}\d+'
+    # $ no more characters
+    pattern = r'^[a-zA-Z]{2,3}\d+$'
     
     if re.match(pattern, s):
         return True
     else:
         return False
+
+def validate_entry(input):
+
+    # The ID number is a subset of the data on the card.
+    substring = str(input[8:15])
+    roster_df = st.session_state['roster_df']
+    if len(input) < 8 and check_string_is_netID(input):  # Did they enter a netID
+        netID = input
+        if netID in roster_df['netID'].values:
+            return True, netID
+        else:
+            return False, None
+    elif substring.isdigit() and len(substring) == 7:
+        cornellID_number = substring
+        if cornellID_number in roster_df['ID'].values:
+            return True, cornellID_number
+        else:
+            return False, None
+    else:
+        return False, None 
 
 def submit_ID():
     """ Processes the card swipe """
@@ -119,20 +193,16 @@ def submit_ID():
          sign_out()
          return   
     
-    # The ID number is a subset of the data on the card.
-    if len(input) < 8 and check_string_is_netID(input):  # Did they enter a netID
-        cornellID_number = input
-    elif len(input) > 16:
-        cornellID_number = input[8:15]
-    else:   
-        st.session_state.card_input = 'Cannot interpret input as ID or netID. Try again.'
+    in_class, validated_data = validate_entry(input)
+    if not in_class:  # Did they enter a netID
+        st.session_state['error_message'] ='### :red[Error! Student not in class. Try again.]'
         return(0)
 
     # Get current time
     formatted_datetime = curDateTimeString()
 
     # Update the Google sheet
-    spreadsheet_entry = st.session_state['first_cols'] + [cornellID_number, formatted_datetime]
+    spreadsheet_entry = st.session_state['first_cols'] + [validated_data, formatted_datetime]
     try:
         append_row_to_google_sheet(spreadsheet_entry)
     except Exception as e:
@@ -141,9 +211,11 @@ def submit_ID():
         return(-1)
 
     # Archive the swipe in the dataframe
-    df_entry = [cornellID_number, formatted_datetime]
+    df_entry = [validated_data, formatted_datetime]
     entries_df.loc[len(entries_df)] = df_entry
     entries_df = entries_df.sort_index(ascending=False, inplace = True)
+
+    st.session_state['error_message'] = ''
     
 
 # Function to inject JavaScript for focusing the input
@@ -182,6 +254,8 @@ def append_row_to_google_sheet(spreadsheet_entry):
 # Initialization
 if 'class_initiated' not in st.session_state:
     st.session_state['class_initiated'] = False
+if 'error_message' not in st.session_state:
+    st.session_state['error_message'] = ''
     
 # Display the logo and the welcome message
 col1, col2 = st.columns([1, 1], vertical_alignment="center")
@@ -212,8 +286,12 @@ with col2:
                key = 'sign_out',
                on_click = sign_out)
     
+with st.container(border = False):
+    st.write(st.session_state['error_message'])
+
 # Display the actual swiping input if class_initiated
 if st.session_state['class_initiated']:
+    st.session_state['placeholder'] = st.container()
     st.text_input("Students must swipe in and out with their Cornell ID. Make sure the cursor is in the field below before swiping.",
                     key = 'card_input',
                     on_change = submit_ID)

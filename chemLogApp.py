@@ -5,10 +5,11 @@ import platform
 import gspread
 import time
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from zoneinfo import ZoneInfo
 from oauth2client.service_account import ServiceAccountCredentials
 import streamlit.components.v1 as components
+from streamlit import session_state as ss
 from tenacity import retry, stop_after_attempt, wait_fixed
 
 # This is a severless streamlit app based on stlite/desktop (https://stlite.net).
@@ -19,12 +20,22 @@ from tenacity import retry, stop_after_attempt, wait_fixed
 # at https://developers.google.com/workspace/sheets/api/quickstart/python) and 
 # https://docs.streamlit.io/develop/tutorials/databases/private-gsheet. Access is controlled by
 # a secrets file that is not archived (for obvious reasons) but is located at ./.streamlit/secrets.toml.
+#
+# New sheets need to be shared with pythonsheets@python-sheets-access-482313.iam.gserviceaccount.com
 # 
 # See README.md for more information.
 
 # Dict to associate course number with sheet name
-ALLOWED_COURSES = {'2070': 'Chem_2070', '2510': 'Chem_2510', 'Test': 'Test'}
-SHEET_NAME = 'Lab Attendance, Spring 2026'
+ALLOWED_COURSES = {'2070': 'Chem_2070', '2080': 'Chem_2080', '2510': 'Chem_2510', 'Test': 'Chem_Test'}
+
+def currentTerm():
+    """ Guesses the current semester based on today's date, e.g. Fall 2026. From microscope/downloadResults.py"""
+    today = date.today()
+    springEnd = datetime.strptime('May 20 2025', '%b %d %Y').date().replace(year=today.year)
+    summerEnd = datetime.strptime('Aug 20 2025', '%b %d %Y').date().replace(year=today.year)
+    term = 'Spring' if today < springEnd else ('Summer' if today < summerEnd else 'Fall')
+    curTerm = term + ' ' + str(today.year)
+    return curTerm
 
 @st.dialog('TA must sign in before you swipe', dismissible=False)
 def nameOfTA_dialog():
@@ -52,13 +63,13 @@ def nameOfTA_dialog():
             elif TA_name_word_count > 1:
                  error_message_placeholder.error('TA name should be one word (e.g., CynthiaK)')
             else:
-                st.session_state['course_num'] = course_num
-                st.session_state['TA_name'] = TA_name
+                ss['course_num'] = course_num
+                ss['TA_name'] = TA_name
                 
                 # Use the current datetime to determine the section (e.g., Mon Afternoon)
                 utc_now = datetime.now(ZoneInfo("UTC"))
                 ny_time = utc_now.astimezone(ZoneInfo("America/New_York"))
-                st.session_state['Start_datetime'] = ny_time
+                ss['Start_datetime'] = ny_time
                 
                 formatted_datetime = ny_time.strftime('%a ') # Ex Mon
                 if int(ny_time.strftime('%H')) < 12:
@@ -66,45 +77,45 @@ def nameOfTA_dialog():
                 else:
                     formatted_datetime += 'PM'
                 section = formatted_datetime
-                st.session_state['section'] = section
+                ss['section'] = section
             
                 # Format the information for the first three columns of the sheet
-                st.session_state['first_cols'] = [course_num, TA_name, section]
+                ss['first_cols'] = [course_num, TA_name, section]
 
                 # Read the roster
                 error = read_Alfred_roster()
                 if error < 0:
                     error_message_placeholder.error('Roster not read. Check wifi!')
-                    st.session_state['class_initiated'] = False
+                    ss['class_initiated'] = False
                     return
                 
                 # Initiate a new dataframe if the TA is just logging in
-                if not st.session_state['class_initiated']:
+                if not ss['class_initiated']:
                     # Set up the dataframe to hold the students
                     column_names = ['ID', 'Time']
                     entries_df = pd.DataFrame(columns=column_names).sort_index(ascending=False)
-                    st.session_state.entries_df = entries_df
+                    ss.entries_df = entries_df
             
-                    st.session_state['class_initiated'] = True   
+                    ss['class_initiated'] = True   
                 
                 st.rerun()
 
 def read_Alfred_roster():
-    st.session_state['rosterSheetName'] = 'Chem_' + st.session_state['course_num'] + '_Roster'
+    ss['rosterSheetName'] = 'Chem_' + ss['course_num'] + '_Roster'
     
     error, roster_df = read_roster_sheet()
     if error < 0:
         return -1
 
-    st.session_state['roster_df'] = roster_df
-    st.session_state['roster_read'] = True
+    ss['roster_df'] = roster_df
+    ss['roster_read'] = True
     return 0
 
 def read_roster_sheet():
 
     # Now open the sheet for the roster and read
     try:
-        data = read_google_sheet_with_retry(st.session_state['rosterSheetName'], 'roster')
+        data = read_google_sheet_with_retry(ss['rosterSheetName'], 'roster')
     except Exception as e:
         st.error(f'Failed after retries (likely wifi issue):: {e}')
         return -1, None
@@ -128,7 +139,7 @@ def read_google_sheet_with_retry(sheetName, msg):   # Open Sheet, then read enti
     google_service_account_info = st.secrets['google_service_account']
     creds = ServiceAccountCredentials.from_json_keyfile_dict(google_service_account_info, scope)
     client = gspread.authorize(creds)
-    sh = client.open(SHEET_NAME)
+    sh = client.open(ss['workbook'])
     
     # Open the appropriate sheet and read it
     data = sh.worksheet(sheetName).get_all_values()
@@ -163,7 +174,7 @@ def validate_entry(input):
 
     # The ID number is a subset of the data on the card.
     substring = str(input[8:15])
-    roster_df = st.session_state['roster_df']
+    roster_df = ss['roster_df']
     if len(input) < 8 and check_string_is_netID(input):  # Did they enter a netID
         netID = input
         if netID in roster_df['netID'].values:
@@ -181,32 +192,32 @@ def validate_entry(input):
 
 def submit_ID():
     """ Processes the card swipe """
-    input = st.session_state.card_input
-    entries_df = st.session_state['entries_df']
-    st.session_state.card_input = ''
+    input = ss.card_input
+    entries_df = ss['entries_df']
+    ss.card_input = ''
     
     # Need to make sure the TA info is "fresh"
     utc_now = datetime.now(ZoneInfo("UTC"))
     ny_time = utc_now.astimezone(ZoneInfo("America/New_York"))
-    hrs_since_login = (ny_time - st.session_state['Start_datetime'])/timedelta(hours = 1)
+    hrs_since_login = (ny_time - ss['Start_datetime'])/timedelta(hours = 1)
     if hrs_since_login > 4.0:
          sign_out()
          return   
     
     in_class, validated_data = validate_entry(input)
     if not in_class:  # Did they enter a netID
-        st.session_state['error_message'] ='### :red[Error! Student not in class. Try again.]'
+        ss['error_message'] ='### :red[Error! Student not in class. Try again.]'
         return(0)
 
     # Get current time
     formatted_datetime = curDateTimeString()
 
     # Update the Google sheet
-    spreadsheet_entry = st.session_state['first_cols'] + [validated_data, formatted_datetime]
+    spreadsheet_entry = ss['first_cols'] + [validated_data, formatted_datetime]
     try:
         append_row_to_google_sheet(spreadsheet_entry)
     except Exception as e:
-        st.session_state.card_input = 'Write failed. Check wifi and try again.'
+        ss.card_input = 'Write failed. Check wifi and try again.'
         st.error(f'Failed after retries (likely wifi issue): {e}')
         return(-1)
 
@@ -215,7 +226,7 @@ def submit_ID():
     entries_df.loc[len(entries_df)] = df_entry
     entries_df = entries_df.sort_index(ascending=False, inplace = True)
 
-    st.session_state['error_message'] = ''
+    ss['error_message'] = ''
     
 
 # Function to inject JavaScript for focusing the input
@@ -233,8 +244,8 @@ def focus_text_input():
 
 def sign_out():
     """ Signs out current TA """
-    st.session_state['class_initiated'] = False
-    st.session_state.entries_df = None
+    ss['class_initiated'] = False
+    ss.entries_df = None
 
 @retry(
     stop=stop_after_attempt(5), # Stop after a maximum of 5 attempts
@@ -247,33 +258,36 @@ def append_row_to_google_sheet(spreadsheet_entry):
     google_service_account_info = st.secrets['google_service_account']
     creds = ServiceAccountCredentials.from_json_keyfile_dict(google_service_account_info, scope)
     client = gspread.authorize(creds)
-    sh = client.open(SHEET_NAME)
-    sheetName = sh.worksheet(ALLOWED_COURSES[st.session_state['course_num']])    
+    sh = client.open(ss['workbook'])
+    sheetName = sh.worksheet(ALLOWED_COURSES[ss['course_num']]) 
     sheetName.append_row(spreadsheet_entry) # Actual spreadsheet entry
  
 # Initialization
-if 'class_initiated' not in st.session_state:
-    st.session_state['class_initiated'] = False
-if 'error_message' not in st.session_state:
-    st.session_state['error_message'] = ''
-    
+if 'class_initiated' not in ss:
+    ss['class_initiated'] = False
+if 'error_message' not in ss:
+    ss['error_message'] = ''
+if 'workbook' not in ss:
+    ss['workbook'] = 'Lab Attendance, ' + currentTerm() # Formerly called SHEET_NAME
+
 # Display the logo and the welcome message
 col1, col2 = st.columns([1, 1], vertical_alignment="center")
 with col1:
     st.image("assets/icon.png", width=250)
 
 with col2:
-    st.html('<div style="text-align: center;font-size: 44px;font-weight: bold">Welcome to Chem Log </div>')
+    st.html('<div style="text-align: center;font-size: 44px;font-weight: bold">Welcome to Chem Log <span style="font-size:'
+    ' 14px;">v2</span></div>')
 
 # with st.container(horizontal_alignment="center"): #
 #     st.image("assets/icon.png", width=250)
 #     st.html('<div style="text-align: center;font-size: 44px;font-weight: bold">Welcome to Chem Log </div>')
 
-if not st.session_state['class_initiated']:
+if not ss['class_initiated']:
     nameOfTA_dialog()
 else:
     # Display the TA info if someone is logged in
-    st.write('### ' + st.session_state['TA_name'] + '\\\'s Chem ' + st.session_state['course_num'] + ' ' + st.session_state['section'] + ' Section')
+    st.write('### ' + ss['TA_name'] + '\\\'s Chem ' + ss['course_num'] + ' ' + ss['section'] + ' Section')
 
 # Allow the TA to log in repeatedly in case of errors
 col1, col2 = st.columns(2)
@@ -281,24 +295,24 @@ with col1:
     if st.button('Update TA & Class Info'):
         nameOfTA_dialog()
 with col2:
-    if st.session_state['class_initiated']:
+    if ss['class_initiated']:
         st.button('TA Sign Out',
                key = 'sign_out',
                on_click = sign_out)
     
 with st.container(border = False):
-    st.write(st.session_state['error_message'])
+    st.write(ss['error_message'])
 
 # Display the actual swiping input if class_initiated
-if st.session_state['class_initiated']:
-    st.session_state['placeholder'] = st.container()
+if ss['class_initiated']:
+    ss['placeholder'] = st.container()
     st.text_input("Students must swipe in and out with their Cornell ID. Make sure the cursor is in the field below before swiping.",
                     key = 'card_input',
                     on_change = submit_ID)
     
     # Display dataframe for entries. This dataframe serves no purpose other than
     #   visual confirmation that the swipe is working
-    st.dataframe(st.session_state.entries_df)
+    st.dataframe(ss.entries_df)
     
 
 # Call the function to focus the input at the end of the script. This attempts to keep the cursor in the text box.

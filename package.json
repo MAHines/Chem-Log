@@ -1,9 +1,9 @@
 {
   "name": "Chem_Log",
-  "version": "2.0",
+  "version": "2.0.0",
   "main": "./build/electron/main.js",
   "scripts": {
-    "dump": "dump-stlite-desktop-artifacts",
+    "dump": "stlite desktop .",
     "serve": "cross-env NODE_ENV=production electron .",
     "app:dir": "electron-builder --dir",
     "app:dist": "electron-builder",

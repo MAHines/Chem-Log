@@ -24,8 +24,8 @@
       "icon": "./assets/icons/mac/icon.icon",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
-      "entitlements": "buildResources/entitlements.mac.plist",
-      "entitlementsInherit": "buildResources/entitlements.mac.plist"
+      "entitlements": "${buildResources}/entitlements.mac.plist",
+      "entitlementsInherit": "${buildResources}/entitlements.mac.plist"
     },
     "afterSign": "./assets/notarize.js",
     "win": {
@@ -33,6 +33,13 @@
         "nsis"
       ],
       "icon": "assets/icons/pc/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "Chem Log"
     }
   },
   "devDependencies": {

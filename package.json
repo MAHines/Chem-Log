@@ -34,13 +34,6 @@
       ],
       "icon": "assets/icons/pc/icon.ico"
     },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": "always",
-      "createStartMenuShortcut": true,
-      "shortcutName": "Chem Log"
-    }
   },
   "devDependencies": {
     "@stlite/desktop": "^0.79.5",

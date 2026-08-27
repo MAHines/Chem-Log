@@ -33,7 +33,7 @@
         "nsis"
       ],
       "icon": "assets/icons/pc/icon.ico"
-    },
+    }
   },
   "devDependencies": {
     "@stlite/desktop": "^0.79.5",

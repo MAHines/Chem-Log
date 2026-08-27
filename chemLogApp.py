@@ -2,15 +2,33 @@ import streamlit as st
 import pandas as pd
 import os
 import platform
+import pyodide_http
+
+# Pyodide/stlite runs in a browser with no real sockets or threads, so `requests`
+# (used under the hood by gspread/google-auth) needs to be patched to issue its
+# HTTP calls via a synchronous XMLHttpRequest instead. This is a no-op outside
+# of Pyodide, so it's safe to call when testing with a regular Python install.
+pyodide_http.patch_all()
+
 import gspread
 import time
 import re
+from google.oauth2.service_account import Credentials
 from datetime import datetime, timedelta, date
 from zoneinfo import ZoneInfo
-from oauth2client.service_account import ServiceAccountCredentials
-import streamlit.components.v1 as components
 from streamlit import session_state as ss
 from tenacity import retry, stop_after_attempt, wait_fixed
+import streamlit.components.v1 as components
+import google.auth.credentials as _gac
+
+# google-auth's CredentialsWithRegionalAccessBoundary (a base of
+# google.oauth2.service_account.Credentials) spawns a real background thread
+# on every request to prefetch a Regional Access Boundary token. Pyodide's
+# single-threaded runtime can't start real threads, so this crashes with
+# "RuntimeError: can't start new thread". Disable it; it's unneeded here.
+_rab_class = getattr(_gac, "CredentialsWithRegionalAccessBoundary", None)
+if _rab_class is not None and hasattr(_rab_class, "_maybe_start_regional_access_boundary_refresh"):
+    _rab_class._maybe_start_regional_access_boundary_refresh = lambda self, *a, **k: None
 
 # This is a severless streamlit app based on stlite/desktop (https://stlite.net).
 # The package runs entirely in a browser and does not require installation of Python, Pandas, etc.
@@ -37,7 +55,7 @@ def currentTerm():
     curTerm = term + ' ' + str(today.year)
     return curTerm
 
-@st.dialog('TA must sign in before you swipe', dismissible=False)
+@st.dialog('TA must sign in before you swipe')  #, dismissible=False)
 def nameOfTA_dialog():
     """ Use a modal dialog to ask the user for a name for the analysis. This will appear at
     the top of the main page if no one has logged in."""
@@ -117,7 +135,8 @@ def read_roster_sheet():
     try:
         data = read_google_sheet_with_retry(ss['rosterSheetName'], 'roster')
     except Exception as e:
-        st.error(f'Failed after retries (likely wifi issue):: {e}')
+        underlying = e.last_attempt.exception() if hasattr(e, 'last_attempt') else e
+        st.error(f'Failed after retries (likely wifi issue):: {underlying!r}')
         return -1, None
     
     headers = data.pop(0)
@@ -136,16 +155,27 @@ def read_google_sheet_with_retry(sheetName, msg):   # Open Sheet, then read enti
     alert = st.warning(message)
     scope = ["https://spreadsheets.google.com/feeds", 'https://www.googleapis.com/auth/spreadsheets',
              "https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/drive"]
+    
     google_service_account_info = st.secrets['google_service_account']
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(google_service_account_info, scope)
-    client = gspread.authorize(creds)
-    sh = client.open(ss['workbook'])
+    credentials = Credentials.from_service_account_info(
+        google_service_account_info, 
+        scopes=scope
+    )
+    client = gspread.Client(auth=credentials)
+        
+    try:
+        sh = client.open(ss['workbook'])
+    except Exception as e:
+        print(f'Failed to open spreadsheet: {e}')
+        import traceback
+        traceback.print_exc()
     
     # Open the appropriate sheet and read it
     data = sh.worksheet(sheetName).get_all_values()
+    
     alert.empty()
     return data
-
+    
 def curDateTimeString():
     
     utc_now = datetime.now(ZoneInfo("UTC"))
@@ -234,10 +264,15 @@ def focus_text_input():
     """ Searches for text inputs and focuses on the last one """ 
     js_script = """
     <script>
-        var input = window.parent.document.querySelectorAll("input[type=text]");
-        for (var i = 0; i < input.length; ++i) {
-            input[i].focus();
-        }
+        // Use setTimeout to ensure the DOM is fully rendered before searching
+        setTimeout(function() {
+            // Look through the parent window (Streamlit app) for text inputs
+            var inputs = window.parent.document.querySelectorAll("input[type=text]");
+            if (inputs.length > 0) {
+                // Focus on the very last text input found
+                inputs[inputs.length - 1].focus();
+            }
+        }, 100); 
     </script>
     """
     components.html(js_script, height=0, width=0)
@@ -256,8 +291,11 @@ def append_row_to_google_sheet(spreadsheet_entry):
     scope = ["https://spreadsheets.google.com/feeds", 'https://www.googleapis.com/auth/spreadsheets',
              "https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/drive"]
     google_service_account_info = st.secrets['google_service_account']
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(google_service_account_info, scope)
-    client = gspread.authorize(creds)
+    credentials = Credentials.from_service_account_info(
+        google_service_account_info, 
+        scopes=scope
+    )
+    client = gspread.Client(auth=credentials)
     sh = client.open(ss['workbook'])
     sheetName = sh.worksheet(ALLOWED_COURSES[ss['course_num']]) 
     sheetName.append_row(spreadsheet_entry) # Actual spreadsheet entry

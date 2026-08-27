@@ -36,11 +36,10 @@
     }
   },
   "devDependencies": {
-    "@stlite/desktop": "workspace:^",
-    "cross-env": "^10.1.0",
+    "@stlite/desktop": "^0.79.5",
+    "cross-env": "^7.0.3",
     "electron": "34.3.0",
-    "electron-builder": "^26.4.0",
-    "electron-builder-notarize-pkg": "^1.2.0"
+    "electron-builder": "^25.1.8"
   },
   "stlite": {
     "desktop": {

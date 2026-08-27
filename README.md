@@ -37,6 +37,8 @@ where chem-log-password-profile is the name of the key in Keychain, and "..." re
 
 Once the Mac app was working, a few lines were added to package.json to enable a pc build. This worked without a hitch.
 
+Aug 2026: The yarn install of electron was problematic. To resolve, I used rmdir /s /q node_modules\electron, downloaded and expanded electron-v34.3.0-win32-x64 from the GitHub repo into node_modules\electron\dist, then ran <nul set /p ="electron.exe" > node_modules\electron\path.txt.
+
 ### Useful resources:
 
 [STLite documentation](https://github.com/whitphx/stlite)
